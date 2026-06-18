@@ -81,8 +81,22 @@ export function ResortOutlookCard({
           <span style={nameStyle}>{resort.name}</span>
           <span style={regionStyle}>{COUNTRY_FLAGS[resort.country]} {resort.region}</span>
         </div>
-        <div style={{ marginTop: 7 }}>
+        <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <span style={{ ...tagStyle, color: toneStyle.fg, background: toneStyle.bg }}>{tag}</span>
+          {row.windRisk && row.windRisk !== "none" && (
+            <span
+              title={row.windRisk === "high"
+                ? "Ventos severos — fechamento de lifts provável"
+                : "Ventos fortes — risco de lift hold"}
+              style={{
+                ...tagStyle,
+                color: row.windRisk === "high" ? "var(--red)" : "var(--warn)",
+                background: row.windRisk === "high" ? "var(--red-soft)" : "var(--warn-soft)",
+              }}
+            >
+              {row.windRisk === "high" ? "✕ hold provável" : "⚠ vento"}
+            </span>
+          )}
         </div>
         <div style={metricsRow}>
           <Metric label="base" value={`${result.expectedBase} cm`} />

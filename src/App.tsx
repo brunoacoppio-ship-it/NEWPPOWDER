@@ -8,12 +8,17 @@ import { ResortOutlookCard } from "./components/ResortOutlookCard";
 import { EnsoBanner } from "./components/EnsoBanner";
 import { ResortMap } from "./components/ResortMap";
 import { DetailPanel } from "./components/DetailPanel";
+import { SmartRecommendation } from "./components/SmartRecommendation";
+import { WindowRanking, computeWindowScores } from "./components/WindowRanking";
 
 const today = new Date().toISOString().slice(0, 10);
 
 const inputStyle: CSSProperties = {
   font: "inherit", fontSize: 15, color: "var(--ink)", background: "var(--surface-2)",
   border: "1px solid var(--line-strong)", borderRadius: 10, padding: "10px 12px", cursor: "pointer",
+};
+const inputSmStyle: CSSProperties = {
+  ...inputStyle, fontSize: 13, padding: "7px 10px",
 };
 
 function horizonLabel(leadDays: number, mode: "forecast" | "seasonal"): string {
@@ -31,6 +36,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 860px)");
 
+  // Window finder state (2.1)
+  const [windowFrom, setWindowFrom] = useState("");
+  const [windowTo, setWindowTo] = useState("");
+
   // Item 1.3: the selectable window + in-season check follow the season config of
   // whichever resorts are currently visible (the region filter), never hardcoded.
   const visibleResorts = useMemo(
@@ -40,6 +49,14 @@ export default function App() {
   const zones = useMemo(() => zonesOf(visibleResorts), [visibleResorts]);
   const bounds = useMemo(() => seasonDateBounds(zones, today), [zones]);
   const inSeason = isDateInSeason(targetDate, zones);
+
+  // Window ranking (2.1) — pure computation, no network
+  const windowRows = useMemo(
+    () => (windowFrom && windowTo && windowFrom <= windowTo
+      ? computeWindowScores(visibleResorts, windowFrom, windowTo)
+      : []),
+    [visibleResorts, windowFrom, windowTo]
+  );
 
   // Selection rules differ by layout:
   //  - desktop: the side panel always shows something → default to #1
@@ -86,6 +103,16 @@ export default function App() {
     </div>
   );
 
+  // Content above the list (shared between mobile/desktop): recommendation + window ranking
+  const aboveList = inSeason && (
+    <>
+      {!loading && rows.length > 0 && <SmartRecommendation rows={rows} />}
+      {windowRows.length > 0 && (
+        <WindowRanking rows={windowRows} from={windowFrom} to={windowTo} />
+      )}
+    </>
+  );
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMobile ? "26px 14px 56px" : "40px 24px 70px" }}>
       {/* Header */}
@@ -130,23 +157,59 @@ export default function App() {
             </select>
           </div>
         </div>
+
         {inSeason && (
-          <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{
-              display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999,
-              fontFamily: "var(--font-mono)", fontSize: 11.5,
-              background: mode === "forecast" ? "var(--blue-soft)" : "var(--amber-soft)",
-              color: mode === "forecast" ? "var(--blue-ink)" : "var(--amber-ink)",
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor",
-                animation: loading ? "pulse 1s infinite" : undefined }} />
-              {mode === "forecast" ? "PREVISÃO REAL" : "MODELO SAZONAL"}
-            </span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--faint)" }}>
-              {horizonLabel(leadDays, mode)}
-              {loading && ` · carregando ${Math.round(progress * 100)}%`}
-            </span>
-          </div>
+          <>
+            {/* Mode status line */}
+            <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999,
+                fontFamily: "var(--font-mono)", fontSize: 11.5,
+                background: mode === "forecast" ? "var(--blue-soft)" : "var(--amber-soft)",
+                color: mode === "forecast" ? "var(--blue-ink)" : "var(--amber-ink)",
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor",
+                  animation: loading ? "pulse 1s infinite" : undefined }} />
+                {mode === "forecast" ? "PREVISÃO REAL" : "MODELO SAZONAL"}
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--faint)" }}>
+                {horizonLabel(leadDays, mode)}
+                {loading && ` · carregando ${Math.round(progress * 100)}%`}
+              </span>
+            </div>
+
+            {/* Window finder (2.1) */}
+            <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--faint)" }}>
+                janela
+              </span>
+              <input
+                type="date" value={windowFrom}
+                min={bounds.min} max={windowTo || bounds.max}
+                onChange={(e) => setWindowFrom(e.target.value)}
+                style={{ ...inputSmStyle, flex: isMobile ? "1 1 120px" : undefined }}
+              />
+              <span style={{ color: "var(--faint)", fontSize: 13 }}>–</span>
+              <input
+                type="date" value={windowTo}
+                min={windowFrom || bounds.min} max={bounds.max}
+                onChange={(e) => setWindowTo(e.target.value)}
+                style={{ ...inputSmStyle, flex: isMobile ? "1 1 120px" : undefined }}
+              />
+              {(windowFrom || windowTo) && (
+                <button
+                  onClick={() => { setWindowFrom(""); setWindowTo(""); }}
+                  style={{
+                    font: "inherit", fontSize: 12, cursor: "pointer",
+                    color: "var(--faint)", background: "transparent",
+                    border: "1px solid var(--line)", borderRadius: 8, padding: "5px 9px",
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </>
         )}
       </header>
 
@@ -171,12 +234,16 @@ export default function App() {
                   Toque num destino — no mapa ou na lista — para ver o detalhe.
                 </p>
               )}
+              {aboveList}
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
             </div>
           ) : (
             /* Desktop: list left, sticky map + detail right */
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 18, alignItems: "start" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {aboveList}
+                {list}
+              </div>
               <div style={{ position: "sticky", top: 18, display: "flex", flexDirection: "column", gap: 18 }}>
                 {mapBlock}
                 {selected && <DetailPanel row={selected} targetDate={targetDate} />}

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RESORTS } from "../data/resorts";
 import { computeSeasonalScore, type SeasonalResult } from "../engine/seasonalScore";
 import {
-  fetchForecast, summarizeForecast, type ForecastResponse,
+  fetchForecast, summarizeForecast, windRiskLevel,
+  type ForecastResponse, type WindRisk,
 } from "../data/forecastClient";
 import { leadDaysTo, forecastSdForLead } from "../data/liveRefine";
 
@@ -19,6 +20,8 @@ export interface OutlookRow {
   // forecast-window only (drives the 16-day chart + fresh-snow metric)
   forecast?: ForecastResponse;
   freshSnowCm?: number;
+  /** Max wind over next 3 days — only set when leadDays ≤ 10 (2.2). */
+  windRisk?: WindRisk;
 }
 
 export function useSeasonalOutlook(targetDate: string, region: string | null) {
@@ -41,6 +44,7 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
     setRows([]);
 
     const run = async () => {
+      const today = new Date().toISOString().slice(0, 10);
       const out: Omit<OutlookRow, "rank">[] = [];
 
       for (let i = 0; i < resorts.length; i++) {
@@ -70,7 +74,14 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
             ? { forecastBase, forecastSd: forecastSdForLead(leadDays) }
             : {}),
         });
-        out.push({ resort, mode, score: result.score, result, forecast, freshSnowCm });
+
+        // Wind risk: max windspeed_10m over next 72 h, only shown ≤10 days out.
+        const windRisk: WindRisk | undefined =
+          (mode === "forecast" && forecast && leadDays <= 10)
+            ? windRiskLevel(forecast.hourly, today)
+            : undefined;
+
+        out.push({ resort, mode, score: result.score, result, forecast, freshSnowCm, windRisk });
 
         if (!cancelled) setProgress((i + 1) / resorts.length);
       }

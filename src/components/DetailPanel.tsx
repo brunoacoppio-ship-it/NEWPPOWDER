@@ -4,11 +4,53 @@ import {
   ReferenceLine, CartesianGrid,
 } from "recharts";
 import type { OutlookRow } from "../hooks/useSeasonalOutlook";
+import type { HourlyForecast } from "../data/forecastClient";
 import { COUNTRY_FLAGS } from "../data/resorts";
 import { monthlyOutlook } from "../engine/seasonalScore";
 import { scoreColor, scoreLabel } from "../utils/scoreColor";
+import { ONI_HISTORY, analogWeight, CURRENT_ONI, ensoPhase } from "../data/enso";
+import { historicalSample } from "../data/climatology";
+
+// ── Snow quality types (2.3) ──────────────────────────────────────────────────
+
+type SnowQuality = "pó" | "batida" | "úmida" | "chuva";
+
+const Q_ICON: Record<SnowQuality, string> = {
+  pó: "❄", batida: "◦", úmida: "~", chuva: "✕",
+};
+const Q_COLOR: Record<SnowQuality, string> = {
+  pó: "var(--cyan-bright)", batida: "var(--ink)", úmida: "var(--warn)", chuva: "var(--red)",
+};
+const Q_BG: Record<SnowQuality, string> = {
+  pó: "var(--cyan-soft)", batida: "var(--stone-soft)",
+  úmida: "var(--warn-soft)", chuva: "var(--red-soft)",
+};
+
+function dayQuality(day: string, h: HourlyForecast, baseElev: number): SnowQuality {
+  let freshSnow = 0, sumTemp = 0, nTemp = 0, sumFreeze = 0, nFreeze = 0;
+  for (let i = 0; i < h.time.length; i++) {
+    if (h.time[i].slice(0, 10) !== day) continue;
+    freshSnow += h.snowfall[i] ?? 0;
+    if (h.temperature_2m?.[i] != null) { sumTemp += h.temperature_2m[i]!; nTemp++; }
+    if (h.freezing_level_height?.[i] != null) { sumFreeze += h.freezing_level_height[i]!; nFreeze++; }
+  }
+  const avgTemp = nTemp > 0 ? sumTemp / nTemp : 0;
+  const avgFreeze = nFreeze > 0 ? sumFreeze / nFreeze : 9999;
+  if (avgFreeze < baseElev) return "chuva";
+  if (avgTemp > 0) return "úmida";
+  if (freshSnow > 5 && avgTemp < -3) return "pó";
+  return "batida";
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtOni(v: number): string {
+  return (v >= 0 ? "+" : "") + v.toFixed(1);
+}
 
 const MONTH_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: string }) {
   const { resort, mode } = row;
@@ -23,7 +65,7 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
       const day = h.time[i].slice(0, 10);
       const prev = byDay.get(day) ?? { depth: 0, snow: 0 };
       byDay.set(day, {
-        depth: (h.snow_depth[i] ?? 0) * 100, // last write wins = end of day, m→cm
+        depth: (h.snow_depth[i] ?? 0) * 100,
         snow: prev.snow + (h.snowfall[i] ?? 0),
       });
     }
@@ -41,11 +83,44 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
     [mode, resort]
   );
 
+  // Snow quality timeline — next 10 days (2.3, forecast mode only)
+  const qualTimeline = useMemo(() => {
+    if (mode !== "forecast" || !row.forecast) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    return Array.from({ length: 10 }, (_, i) => {
+      const d = new Date(today + "T12:00:00Z");
+      d.setDate(d.getDate() + i);
+      const day = d.toISOString().slice(0, 10);
+      return {
+        day,
+        label: `${d.getUTCDate()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`,
+        quality: dayQuality(day, row.forecast!.hourly, resort.baseElevation),
+      };
+    });
+  }, [mode, row.forecast, resort.baseElevation]);
+
+  // Top-3 ENSO analog years (2.5) — pure computation, always available
+  const analogYears = useMemo(() => {
+    return ONI_HISTORY
+      .map(({ year, oni }) => ({
+        year,
+        oni: Math.round(oni * 10) / 10,
+        weight: Math.round(analogWeight(oni, CURRENT_ONI) * 100),
+        base: Math.round(historicalSample(resort.id, year, oni)),
+      }))
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 3);
+  }, [resort.id]);
+
+  const phase = ensoPhase(CURRENT_ONI);
+  const currentYear = new Date().getFullYear();
+
   const targetMonthLabel = MONTH_PT[Number(targetDate.slice(5, 7)) - 1];
   const inSeasonRange = ["Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov"].includes(targetMonthLabel);
 
   return (
     <div className="glass" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
       <div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
           <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 600 }}>
@@ -110,7 +185,35 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
         </ResponsiveContainer>
       </div>
 
-      {/* Metrics — one continuous engine output; the live forecast just folds in */}
+      {/* Snow quality timeline (2.3) */}
+      {qualTimeline.length > 0 && (
+        <div>
+          <div style={sectionLabel}>qualidade da neve · próximos 10 dias</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+            {qualTimeline.map(({ day, label, quality }) => (
+              <div key={day} style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                padding: "6px 7px", borderRadius: 8, background: Q_BG[quality], minWidth: 38,
+              }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--faint)" }}>
+                  {label}
+                </span>
+                <span style={{ fontSize: 14, color: Q_COLOR[quality], lineHeight: 1 }}>
+                  {Q_ICON[quality]}
+                </span>
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 9, color: Q_COLOR[quality],
+                  letterSpacing: "0.01em",
+                }}>
+                  {quality}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Metrics */}
       <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55 }}>
         {row.result.reasoning}
       </p>
@@ -127,6 +230,35 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
       </div>
       <div style={{ fontSize: 11.5, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
         fontes: {row.result.sources.join(" · ")}
+      </div>
+
+      {/* Analog years (2.5) */}
+      <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+        <div style={sectionLabel}>
+          anos análogos · {phase.label} {currentYear}
+        </div>
+        {analogYears.length >= 2 && (
+          <p style={{ margin: "6px 0 10px", fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+            {`Este ${phase.label} (${phase.strength}) mais se parece com ${analogYears[0].year} (ONI ${fmtOni(analogYears[0].oni)}) e ${analogYears[1].year} (ONI ${fmtOni(analogYears[1].oni)}).`}
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          {analogYears.map(({ year, oni, weight, base }) => (
+            <div key={year} style={{
+              flex: 1, background: "var(--stone-soft)", borderRadius: 10, padding: "9px 11px",
+            }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 500, color: "var(--ink)" }}>
+                {year}
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--faint)", marginTop: 2 }}>
+                ONI {fmtOni(oni)} · {weight}% peso
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--cyan)", marginTop: 5 }}>
+                ~{base} cm
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -164,6 +296,10 @@ function ChartTip({ active, payload, label, unit }: {
   );
 }
 
+const sectionLabel: CSSProperties = {
+  fontFamily: "var(--font-mono)", fontSize: 10.5, letterSpacing: "0.08em",
+  color: "var(--faint)", textTransform: "uppercase",
+};
 const metricsGrid: CSSProperties = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8,
 };

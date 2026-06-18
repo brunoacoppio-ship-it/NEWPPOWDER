@@ -4,6 +4,9 @@ export interface HourlyForecast {
   time: string[];
   snowfall: number[];
   snow_depth: number[];
+  windspeed_10m?: number[];         // km/h — lift-hold risk (2.2)
+  temperature_2m?: number[];        // °C   — snow quality (2.3)
+  freezing_level_height?: number[]; // m    — rain line (2.3)
 }
 
 export interface ForecastResponse {
@@ -28,7 +31,7 @@ export async function fetchForecast(
   if (hit) return hit;
   const params = new URLSearchParams({
     latitude: String(lat), longitude: String(lon),
-    hourly: "snowfall,snow_depth",
+    hourly: "snowfall,snow_depth,windspeed_10m,temperature_2m,freezing_level_height",
     forecast_days: "16", timezone: "auto",
   });
   const res = await fetch(`${BASE_URL}?${params}`);
@@ -43,6 +46,29 @@ export async function fetchForecast(
   memCache.set(key, data);
   return data;
 }
+
+// ── Wind risk (2.2) ───────────────────────────────────────────────────────────
+// Uses windspeed_10m max over the next 72 h from today as a proxy for lift-hold
+// risk. Only meaningful within 10 days; beyond that the signal is unreliable.
+
+export type WindRisk = "none" | "caution" | "high";
+
+export function windRiskLevel(hourly: HourlyForecast, today: string): WindRisk {
+  const todayMs = new Date(today).getTime();
+  const cutoffMs = todayMs + 3 * 86_400_000;
+  let maxWind = 0;
+  for (let i = 0; i < hourly.time.length; i++) {
+    const t = new Date(hourly.time[i]).getTime();
+    if (t >= todayMs && t < cutoffMs) {
+      maxWind = Math.max(maxWind, hourly.windspeed_10m?.[i] ?? 0);
+    }
+  }
+  if (maxWind > 90) return "high";
+  if (maxWind > 60) return "caution";
+  return "none";
+}
+
+// ── Forecast summary (existing) ───────────────────────────────────────────────
 
 export interface ForecastSummary {
   /** Modeled base depth (cm) at the end of the target day. */
