@@ -80,6 +80,41 @@ describe("seasonal engine", () => {
     expect(forecast2.sd).toBeLessThan(forecast15.sd);
   });
 
+  // ── Bloco 3 Parte A: the multi-term fusion ──────────────────────────────────
+
+  it("disagrees with history when the current season is dry (anchor term)", () => {
+    // Valle Nevado: history + El Niño both say "good year". But if THIS season is
+    // running very dry, the anchor must drag the score below the no-anchor case —
+    // the model disagreeing with the historical record is the whole point of 3.2.
+    const v = byId("valle-nevado");
+    const opts = { targetDate: "2026-08-15", leadDays: 5 };
+    const withoutAnchor = computeSeasonalScore(v, opts);
+    const withDryAnchor = computeSeasonalScore(v, { ...opts, currentAnomalyCm: -90 });
+
+    expect(withDryAnchor.expectedBase).toBeLessThan(withoutAnchor.expectedBase);
+    expect(withDryAnchor.score).toBeLessThan(withoutAnchor.score);
+  });
+
+  it("the current-state anomaly decays with lead time (near weighs more than far)", () => {
+    const v = byId("valle-nevado");
+    const common = { targetDate: "2026-08-15", currentAnomalyCm: 60 };
+    const near = computeSeasonalScore(v, { ...common, leadDays: 7 });
+    const far = computeSeasonalScore(v, { ...common, leadDays: 90 });
+    // Same positive anomaly lifts the estimate more when the date is close.
+    expect(near.expectedBase).toBeGreaterThan(far.expectedBase);
+  });
+
+  it("uses a real ERA5 historical base as a fusion term when provided", () => {
+    const v = byId("valle-nevado");
+    const real = computeSeasonalScore(v, { targetDate: "2026-08-15", historicalBase: { mean: 250, sd: 6 } });
+    const synth = computeSeasonalScore(v, { targetDate: "2026-08-15" });
+    // A much deeper real history pulls the expected base above the synthetic one.
+    expect(real.expectedBase).toBeGreaterThan(synth.expectedBase);
+    expect(real.sources.some((s) => s.includes("ERA5"))).toBe(true);
+    // ...but it is only a TERM: the analog still tempers it, so it doesn't reach 250.
+    expect(real.expectedBase).toBeLessThan(250);
+  });
+
   it("varies by date: August peak beats June ramp-up beats October melt", () => {
     const v = byId("valle-nevado");
     const june = computeSeasonalScore(v, { targetDate: "2026-06-15" });

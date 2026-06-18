@@ -5,6 +5,7 @@ import {
   fetchForecast, summarizeForecast, windRiskLevel,
   type ForecastResponse, type WindRisk,
 } from "../data/forecastClient";
+import { getHistoricalTerms } from "../data/historicalClient";
 import { leadDaysTo, forecastSdForLead } from "../data/liveRefine";
 
 export type DataMode = "forecast" | "seasonal";
@@ -51,6 +52,19 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
         if (cancelled) return;
         const resort = resorts[i];
 
+        // Real ERA5 terms (Bloco 3): the historical base at the target date and
+        // the current-season anchor. Both fail soft — on any error the engine
+        // falls back to its embedded climatology for that resort.
+        let historicalBase: { mean: number; sd: number } | undefined;
+        let currentAnomalyCm: number | undefined;
+        try {
+          const hist = await getHistoricalTerms(resort, targetDate, today);
+          if (hist) {
+            historicalBase = hist.historicalBase;
+            if (hist.currentAnomalyCm != null) currentAnomalyCm = hist.currentAnomalyCm;
+          }
+        } catch { /* fail soft → embedded climatology */ }
+
         // Inside the 16-day window, the real forecast joins the engine as one
         // more estimator (it doesn't replace the formula). Network failure just
         // falls back to the pure seasonal estimate for that resort.
@@ -70,6 +84,9 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
 
         const result = computeSeasonalScore(resort, {
           targetDate,
+          leadDays,
+          ...(historicalBase != null ? { historicalBase } : {}),
+          ...(currentAnomalyCm != null ? { currentAnomalyCm } : {}),
           ...(forecastBase != null
             ? { forecastBase, forecastSd: forecastSdForLead(leadDays) }
             : {}),

@@ -14,6 +14,8 @@ export interface SeasonalOpts {
   oni?: number;
   /** Target date (YYYY-MM-DD). Drives the seasonal curve so July ≠ October. */
   targetDate?: string;
+  /** Days from today to the target date — drives the anchor's decay (Bloco 3). */
+  leadDays?: number;
   /** Live 16-day forecast base depth (cm), only meaningful inside the window. */
   forecastBase?: number;
   forecastSd?: number;
@@ -21,6 +23,22 @@ export interface SeasonalOpts {
   seas5AnomalyCm?: number;
   /** Season-to-date snowpack ratio (1.0 = on track). */
   persistenceRatio?: number;
+  /** Real ERA5 base depth at the target date (cm), 5-year mean + spread (3.1).
+   *  When present it replaces the synthetic recent-climatology term — but it is
+   *  still just ONE term in the fusion, never the answer on its own. */
+  historicalBase?: { mean: number; sd: number };
+  /** Current season-to-date base anomaly vs the 5-year normal (cm). The ANCHOR
+   *  term (3.2): projected to the target date with autocorrelation decay so the
+   *  model responds to THIS year and can disagree with the historical record. */
+  currentAnomalyCm?: number;
+}
+
+/** Autocorrelation per ~month for projecting the current-season anomaly forward. */
+const ANCHOR_AUTOCORR = 0.7;
+
+/** Scale a PEAK-winter estimator into date-space by the season factor. */
+function scaleEstimator(e: Estimator, sf: number): Estimator {
+  return { mean: e.mean * sf, var: e.var * sf * sf };
 }
 
 export interface SeasonalResult {
@@ -137,40 +155,79 @@ export function computeSeasonalScore(r: Resort, opts: SeasonalOpts = {}): Season
     sls = snowlineShift(m, d);
   }
 
-  const sources: string[] = ["climatologia recente (5 anos)", "análogo de ENSO"];
-  const recent = recentEstimate(r.id);
-  const estimators: Estimator[] = [recent, analogEstimate(r.id, oni)];
+  // ── Term fusion (Bloco 3): every term is brought into DATE-SPACE, then fused
+  // by inverse variance. Fusing scaled estimators is mathematically identical to
+  // the old "fuse in peak space, then scale" path, so the embedded-only behaviour
+  // is unchanged — the new real-data terms simply join the same fusion. ──────────
+  const sources: string[] = [];
+  const climDate: Estimator[] = [];
+
+  // (3.1) Historical term: real ERA5 at the target date if available — otherwise
+  // the synthetic recent climatology. Either way it is just ONE term. The real
+  // term's spread is floored so a quiet 5 years can't masquerade as certainty.
+  let normalBase: number;
+  if (opts.historicalBase) {
+    const floorVar = (0.7 * c.sd * sf) ** 2;
+    climDate.push({
+      mean: Math.max(0, opts.historicalBase.mean),
+      var: Math.max(opts.historicalBase.sd ** 2, floorVar),
+    });
+    normalBase = opts.historicalBase.mean;
+    sources.push("histórico ERA5 (5 anos)");
+  } else {
+    const recent = recentEstimate(r.id);
+    climDate.push(scaleEstimator(recent, sf));
+    normalBase = recent.mean * sf;
+    sources.push("climatologia recente (5 anos)");
+  }
+
+  // (3.3) ENSO analog — history re-weighted by similarity to this year's ONI.
+  climDate.push(scaleEstimator(analogEstimate(r.id, oni), sf));
+  sources.push("análogo de ENSO");
 
   if (opts.persistenceRatio != null) {
-    estimators.push({ mean: c.meanBase * opts.persistenceRatio, var: (0.45 * c.sd) ** 2 });
+    climDate.push(scaleEstimator({ mean: c.meanBase * opts.persistenceRatio, var: (0.45 * c.sd) ** 2 }, sf));
     sources.push("persistência da temporada");
   }
   if (opts.seas5AnomalyCm != null) {
-    estimators.push({ mean: c.meanBase + opts.seas5AnomalyCm, var: (0.55 * c.sd) ** 2 });
+    climDate.push(scaleEstimator({ mean: c.meanBase + opts.seas5AnomalyCm, var: (0.55 * c.sd) ** 2 }, sf));
     sources.push("SEAS5");
   }
-  // Climatological/analog terms live in PEAK-winter space; the season curve
-  // scales the fused estimate down to the target date. Honest-uncertainty floor:
-  // a pure seasonal outlook (no live forecast yet) can't be narrow.
-  const fusedClim = fuse(estimators);
-  const seasonalMean = Math.max(0, fusedClim.mean) * sf;
-  const seasonalSd = Math.max(Math.sqrt(fusedClim.var) * sf, 0.18 * seasonalMean);
 
-  // The live forecast (≤16d) is a DATE-SPECIFIC base depth, so it joins the
-  // fusion AFTER the seasonal scaling — the same continuous quantity gains one
-  // more (precise) estimator. Crossing the 16-day edge never switches formulas:
-  // the score stays put and only the band tightens.
-  let expectedBase = seasonalMean;
-  let sd = seasonalSd;
+  // The climatology baseline = the "normal for this date". Honest-uncertainty
+  // floor: a pure seasonal outlook (no live anchor/forecast yet) can't be narrow.
+  const fusedClim = fuse(climDate);
+  const seasonalMean = Math.max(0, fusedClim.mean);
+  const seasonalSd = Math.max(Math.sqrt(fusedClim.var), 0.18 * seasonalMean);
+
+  // Date-space fusion: baseline + anchor + live forecast (each present or not).
+  const dateEst: Estimator[] = [{ mean: seasonalMean, var: seasonalSd ** 2 }];
+
+  // (3.2) ANCHOR — the current season's anomaly persisted forward. This is the
+  // channel that makes the model respond to THIS year: a dry start drags the
+  // score below climatology even when history + El Niño say "good year". The
+  // anomaly's weight decays with lead time (r^(lead/30)), so nearby dates feel
+  // it strongly and distant ones barely.
+  if (opts.currentAnomalyCm != null) {
+    const lead = Math.max(0, opts.leadDays ?? 0);
+    const decay = Math.pow(ANCHOR_AUTOCORR, lead / 30);
+    const anchorMean = Math.max(0, seasonalMean + opts.currentAnomalyCm * decay);
+    const anchorSd = Math.max(0.35 * c.sd * sf, 8);
+    dateEst.push({ mean: anchorMean, var: anchorSd ** 2 });
+    sources.push("estado atual da temporada (âncora)");
+  }
+
+  // The live forecast (≤16d) is a DATE-SPECIFIC base depth that joins the same
+  // fusion. Crossing the 16-day edge never switches formulas — the score stays
+  // put and only the band tightens.
   if (opts.forecastBase != null) {
-    const combined = fuse([
-      { mean: seasonalMean, var: seasonalSd ** 2 },
-      { mean: Math.max(0, opts.forecastBase), var: (opts.forecastSd ?? 8) ** 2 },
-    ]);
-    expectedBase = Math.max(0, combined.mean);
-    sd = Math.sqrt(combined.var);
+    dateEst.push({ mean: Math.max(0, opts.forecastBase), var: (opts.forecastSd ?? 8) ** 2 });
     sources.push("previsão do tempo");
   }
+
+  const combined = dateEst.length > 1 ? fuse(dateEst) : dateEst[0];
+  const expectedBase = Math.max(0, combined.mean);
+  const sd = Math.sqrt(combined.var);
 
   const low = Math.max(0, expectedBase - sd);
   const high = expectedBase + sd;
@@ -183,7 +240,6 @@ export function computeSeasonalScore(r: Resort, opts: SeasonalOpts = {}): Season
   const relWidth = sd / Math.max(expectedBase, 1);
   const confidence: Confidence = relWidth < 0.16 ? "alta" : relWidth < 0.3 ? "média" : "baixa";
 
-  const normalBase = recent.mean * sf;
   const anomaly = expectedBase - normalBase;
   const aboveThresh = 0.3 * c.sd * sf;
   let tag: string, tone: Tone;
