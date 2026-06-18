@@ -30,6 +30,14 @@ const TONE: Record<string, { fg: string; bg: string }> = {
   neutral: { fg: "var(--muted)",       bg: "var(--stone-soft)" },
 };
 
+/** Human "updated Xh ago" from a fetch timestamp. */
+function freshness(fetchedAt: number): string {
+  const min = Math.floor((Date.now() - fetchedAt) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  return `há ${Math.floor(min / 60)} h`;
+}
+
 export function ResortOutlookCard({
   row, selected, onSelect,
 }: {
@@ -37,8 +45,15 @@ export function ResortOutlookCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { resort, rank, score, result } = row;
+  const { resort, rank, score, result, mode, forecast } = row;
   const { scoreLow, scoreHigh, low, high, confidence, tag, tone } = result;
+
+  // Provenance line (item 1.6): live freshness in forecast mode, model note otherwise.
+  const source = mode === "forecast"
+    ? forecast
+      ? `atualizado ${freshness(forecast.fetchedAt)} · Open-Meteo`
+      : "previsão indisponível · Open-Meteo"
+    : "modelo sazonal · ENSO + climatologia 5a";
 
   const gid = `grad-${resort.id}`;
   // Confidence drives the lit segment's hue: amber only when genuinely shaky.
@@ -76,6 +91,7 @@ export function ResortOutlookCard({
           <span style={dotSep}>·</span>
           <Metric label="conf." value={confidence} />
         </div>
+        <div style={sourceLine}>{source}</div>
       </div>
 
       {/* Brand dial: score arc + confidence band */}
@@ -130,6 +146,10 @@ const metricsRow: CSSProperties = {
   marginTop: 8, display: "flex", alignItems: "baseline", gap: 7, flexWrap: "wrap",
 };
 const dotSep: CSSProperties = { color: "var(--faint)", fontFamily: "var(--font-mono)", fontSize: 12 };
+const sourceLine: CSSProperties = {
+  marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--faint)",
+  letterSpacing: "0.02em",
+};
 const dialCenter: CSSProperties = {
   position: "absolute", inset: 0, display: "flex", flexDirection: "column",
   alignItems: "center", justifyContent: "center", gap: 2, pointerEvents: "none",

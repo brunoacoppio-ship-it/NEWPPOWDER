@@ -10,17 +10,22 @@ export interface ForecastResponse {
   latitude: number;
   longitude: number;
   hourly: HourlyForecast;
+  /** Epoch ms when this forecast was fetched (drives "updated Xh ago"). */
+  fetchedAt: number;
 }
 
-// Session-level cache: one fetch per resort per page load
+// Session cache keyed by (resortId, targetDate). Switching dates naturally
+// misses (new key) and returning to a date reuses the entry — no manual
+// clearing needed. Lives for the page session.
 const memCache = new Map<string, ForecastResponse>();
-
-export function clearForecastCache() { memCache.clear(); }
+const cacheKey = (resortId: string, targetDate: string) => `${resortId}:${targetDate}`;
 
 export async function fetchForecast(
-  lat: number, lon: number, resortId: string
+  lat: number, lon: number, resortId: string, targetDate: string
 ): Promise<ForecastResponse> {
-  if (memCache.has(resortId)) return memCache.get(resortId)!;
+  const key = cacheKey(resortId, targetDate);
+  const hit = memCache.get(key);
+  if (hit) return hit;
   const params = new URLSearchParams({
     latitude: String(lat), longitude: String(lon),
     hourly: "snowfall,snow_depth",
@@ -28,8 +33,14 @@ export async function fetchForecast(
   });
   const res = await fetch(`${BASE_URL}?${params}`);
   if (!res.ok) throw new Error(`Open-Meteo ${res.status}`);
-  const data: ForecastResponse = await res.json();
-  memCache.set(resortId, data);
+  const json = await res.json();
+  const data: ForecastResponse = {
+    latitude: json.latitude,
+    longitude: json.longitude,
+    hourly: json.hourly,
+    fetchedAt: Date.now(),
+  };
+  memCache.set(key, data);
   return data;
 }
 

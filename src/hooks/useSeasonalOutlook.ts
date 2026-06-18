@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RESORTS } from "../data/resorts";
 import { computeSeasonalScore, type SeasonalResult } from "../engine/seasonalScore";
 import {
-  fetchForecast, clearForecastCache, summarizeForecast, type ForecastResponse,
+  fetchForecast, summarizeForecast, type ForecastResponse,
 } from "../data/forecastClient";
 import { leadDaysTo, forecastSdForLead } from "../data/liveRefine";
 
@@ -36,7 +36,6 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
 
   useEffect(() => {
     let cancelled = false;
-    clearForecastCache();
     setLoading(true);
     setProgress(0);
     setRows([]);
@@ -56,7 +55,7 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
         let freshSnowCm: number | undefined;
         if (mode === "forecast") {
           try {
-            forecast = await fetchForecast(resort.lat, resort.lon, resort.id);
+            forecast = await fetchForecast(resort.lat, resort.lon, resort.id, targetDate);
             const summary = summarizeForecast(forecast.hourly, targetDate);
             forecastBase = summary.baseDepthCm;
             freshSnowCm = summary.freshSnowCm;
