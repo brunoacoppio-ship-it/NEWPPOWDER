@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine, CartesianGrid,
@@ -10,6 +10,9 @@ import { monthlyOutlook } from "../engine/seasonalScore";
 import { scoreColor, scoreLabel } from "../utils/scoreColor";
 import { ONI_HISTORY, analogWeight, CURRENT_ONI, ensoPhase } from "../data/enso";
 import { historicalSample } from "../data/climatology";
+import {
+  getSeasonTiming, doyToDate, type SeasonTiming, type SeasonProjection,
+} from "../data/seasonTiming";
 
 // ── Snow quality types (2.3) ──────────────────────────────────────────────────
 
@@ -114,6 +117,20 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
 
   const phase = ensoPhase(CURRENT_ONI);
   const currentYear = new Date().getFullYear();
+
+  // Adaptive season open/close window (3.6) — fetched per selected resort, fails
+  // soft: on any network/data gap the section simply doesn't render.
+  const [timing, setTiming] = useState<SeasonTiming | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setTiming(null);
+    const today = new Date().toISOString().slice(0, 10);
+    const targetYear = Number(targetDate.slice(0, 4));
+    getSeasonTiming(resort, today, targetYear, CURRENT_ONI)
+      .then((t) => { if (!cancelled) setTiming(t); })
+      .catch(() => { /* fail soft */ });
+    return () => { cancelled = true; };
+  }, [resort, targetDate]);
 
   const targetMonthLabel = MONTH_PT[Number(targetDate.slice(5, 7)) - 1];
   const inSeasonRange = ["Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov"].includes(targetMonthLabel);
@@ -260,6 +277,51 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
           ))}
         </div>
       </div>
+
+      {/* Adaptive season window (3.6) — omitted entirely when data is unavailable */}
+      {timing && (timing.open || timing.close) && (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+          <div style={sectionLabel}>temporada · janela provável {timing.targetYear}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+            {timing.open && <TimingRow label="Abertura" proj={timing.open} year={timing.targetYear} kind="open" />}
+            {timing.close && <TimingRow label="Fechamento" proj={timing.close} year={timing.targetYear} kind="close" />}
+          </div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--faint)", marginTop: 8 }}>
+            tendência ERA5 · {(timing.open ?? timing.close)!.nYears} invernos · Theil-Sen
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Season-window row (3.6) ────────────────────────────────────────────────────
+
+function fmtDoy(year: number, doy: number): string {
+  const d = doyToDate(year, Math.round(doy));
+  return `${d.getUTCDate()} ${MONTH_PT[d.getUTCMonth()].toLowerCase()}`;
+}
+
+function trendNote(slopePerDecade: number, kind: "open" | "close"): string {
+  const days = Math.abs(slopePerDecade);
+  if (days < 1) return "estável na década";
+  const dir = slopePerDecade > 0 ? "mais tarde" : "mais cedo";
+  const verb = kind === "open" ? "abrindo" : "fechando";
+  return `vem ${verb} ~${Math.round(days)} dias ${dir} por década`;
+}
+
+function TimingRow({
+  label, proj, year, kind,
+}: {
+  label: string; proj: SeasonProjection; year: number; kind: "open" | "close";
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 12.5, color: "var(--muted)", minWidth: 78 }}>{label} provável</span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--cyan)" }}>
+        {fmtDoy(year, proj.lowDoy)} – {fmtDoy(year, proj.highDoy)}
+      </span>
+      <span style={{ fontSize: 11.5, color: "var(--faint)" }}>{trendNote(proj.slopePerDecade, kind)}</span>
     </div>
   );
 }
