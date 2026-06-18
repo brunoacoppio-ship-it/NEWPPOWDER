@@ -13,6 +13,7 @@ import { historicalSample } from "../data/climatology";
 import {
   getSeasonTiming, doyToDate, type SeasonTiming, type SeasonProjection,
 } from "../data/seasonTiming";
+import { fetchWebcams, type Webcam } from "../data/webcamsClient";
 
 // ── Snow quality types (2.3) ──────────────────────────────────────────────────
 
@@ -131,6 +132,17 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
       .catch(() => { /* fail soft */ });
     return () => { cancelled = true; };
   }, [resort, targetDate]);
+
+  // Live webcams (5.2) — fail soft: no key / no camera / API down ⇒ empty.
+  const [webcams, setWebcams] = useState<Webcam[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setWebcams([]);
+    fetchWebcams(resort.lat, resort.lon)
+      .then((w) => { if (!cancelled) setWebcams(w); })
+      .catch(() => { /* fail soft */ });
+    return () => { cancelled = true; };
+  }, [resort]);
 
   const targetMonthLabel = MONTH_PT[Number(targetDate.slice(5, 7)) - 1];
   const inSeasonRange = ["Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov"].includes(targetMonthLabel);
@@ -291,6 +303,49 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
           </div>
         </div>
       )}
+
+      {/* Live webcams (5.2) — hidden entirely when there's nothing to show */}
+      {(webcams.length > 0 || resort.webcamUrl) && (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+          <div style={sectionLabel}>câmeras ao vivo</div>
+          {webcams.length > 0 && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              {webcams.map((cam) => (
+                <a
+                  key={cam.id}
+                  href={cam.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={cam.title}
+                  style={webcamCard}
+                >
+                  <img src={cam.thumb} alt={cam.title} style={webcamImg} loading="lazy" />
+                  <span style={webcamTitle}>{cam.title}</span>
+                </a>
+              ))}
+            </div>
+          )}
+          {resort.webcamUrl && (
+            <a
+              href={resort.webcamUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 8, fontSize: 13, color: "var(--cyan)" }}
+            >
+              Câmera oficial do resort →
+            </a>
+          )}
+          {webcams.length > 0 && (
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--faint)", marginTop: 8 }}>
+              câmeras via{" "}
+              <a href="https://www.windy.com/webcams" target="_blank" rel="noopener noreferrer"
+                style={{ color: "var(--faint)", textDecoration: "underline" }}>
+                Windy.com
+              </a>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -364,4 +419,16 @@ const sectionLabel: CSSProperties = {
 };
 const metricsGrid: CSSProperties = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8,
+};
+const webcamCard: CSSProperties = {
+  display: "flex", flexDirection: "column", gap: 4, textDecoration: "none",
+  width: 120, flexShrink: 0,
+};
+const webcamImg: CSSProperties = {
+  width: 120, height: 80, objectFit: "cover", borderRadius: 10,
+  border: "1px solid var(--line)", background: "var(--stone-soft)",
+};
+const webcamTitle: CSSProperties = {
+  fontSize: 11, color: "var(--muted)", lineHeight: 1.3,
+  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
 };

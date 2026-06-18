@@ -14,7 +14,7 @@ import { WindowRanking, computeWindowScores } from "./components/WindowRanking";
 const today = new Date().toISOString().slice(0, 10);
 
 const inputStyle: CSSProperties = {
-  font: "inherit", fontSize: 15, color: "var(--ink)", background: "var(--surface-2)",
+  fontFamily: "inherit", fontSize: 15, color: "var(--ink)", background: "var(--surface-2)",
   border: "1px solid var(--line-strong)", borderRadius: 10, padding: "10px 12px", cursor: "pointer",
 };
 const inputSmStyle: CSSProperties = {
@@ -200,7 +200,7 @@ export default function App() {
                 <button
                   onClick={() => { setWindowFrom(""); setWindowTo(""); }}
                   style={{
-                    font: "inherit", fontSize: 12, cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 12, cursor: "pointer",
                     color: "var(--faint)", background: "transparent",
                     border: "1px solid var(--line)", borderRadius: 8, padding: "5px 9px",
                   }}
@@ -300,7 +300,7 @@ function OutOfSeason({
       <button
         onClick={onGoToPeak}
         style={{
-          font: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer",
+          fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer",
           color: "var(--bg)", background: "var(--cyan)",
           border: "none", borderRadius: 10, padding: "10px 18px", marginTop: 4,
         }}

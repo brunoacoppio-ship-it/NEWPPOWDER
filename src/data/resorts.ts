@@ -12,6 +12,9 @@ export interface Resort {
   topElevation: number;
   /** Pacific-facing (Chile) gets moisture first; leeward (Argentina) lives on spillover. */
   windward: boolean;
+  /** Manual webcam fallback (item 5.2). Used when the Windy Webcams API returns
+   *  nothing nearby (or no API key is set). Leave empty for now. */
+  webcamUrl?: string;
 }
 
 export const RESORTS: Resort[] = [
