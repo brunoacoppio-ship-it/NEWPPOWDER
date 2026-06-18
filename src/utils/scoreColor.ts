@@ -1,11 +1,13 @@
-// Score → color ramp (red → amber → cyan → bright blue) for markers and accents.
+// Score → brand color ramp. Stays inside the identity palette: bright cyan for
+// prime, descending the cyan→blue gradient, then slate neutral for low scores.
+// No green/rose — score is encoded by brightness, not by leaving the palette.
 export function scoreColor(score: number): string {
   const s = Math.max(0, Math.min(100, score));
-  if (s >= 70) return "#38bdf8"; // bright sky — prime
-  if (s >= 55) return "#22d3ee"; // cyan — good
-  if (s >= 40) return "#a3e635"; // lime — fair
-  if (s >= 25) return "#fbbf24"; // amber — marginal
-  return "#fb7185";              // rose — poor
+  if (s >= 70) return "#5be2ff"; // cyan-bright — prime
+  if (s >= 55) return "#2dd4f8"; // cyan — good
+  if (s >= 40) return "#2a7fde"; // blue — fair
+  if (s >= 25) return "#8da0bd"; // neutral slate — marginal
+  return "#5e6e8c";              // faint slate — poor
 }
 
 export function scoreLabel(score: number): string {

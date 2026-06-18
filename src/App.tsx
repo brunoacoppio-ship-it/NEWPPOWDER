@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, Fragment, type CSSProperties } from "reac
 import logoIcon from "./assets/logo-icon.png";
 import { RESORTS, REGIONS } from "./data/resorts";
 import { zonesOf, isDateInSeason, seasonDateBounds, seasonLabel, peakDefaultDate } from "./data/seasons";
+import { crowdWindowsFor } from "./data/crowdCalendar";
 import { useSeasonalOutlook } from "./hooks/useSeasonalOutlook";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { ResortOutlookCard } from "./components/ResortOutlookCard";
@@ -49,6 +50,9 @@ export default function App() {
   const zones = useMemo(() => zonesOf(visibleResorts), [visibleResorts]);
   const bounds = useMemo(() => seasonDateBounds(zones, today), [zones]);
   const inSeason = isDateInSeason(targetDate, zones);
+
+  // Crowd calendar (4.2) — depends only on the target date.
+  const crowdLabels = useMemo(() => crowdWindowsFor(targetDate), [targetDate]);
 
   // Window ranking (2.1) — pure computation, no network
   const windowRows = useMemo(
@@ -126,16 +130,24 @@ export default function App() {
                 style={{
                   height: isMobile ? 46 : 58, width: "auto",
                   mixBlendMode: "screen",
-                  filter: "drop-shadow(0 0 14px rgba(56,189,248,0.25))",
+                  filter: "drop-shadow(0 0 14px var(--glow-cyan))",
                 }}
               />
               <div>
-                <h1 style={{ fontFamily: "var(--font-display)", fontSize: isMobile ? 27 : 36, fontWeight: 700, letterSpacing: "-0.02em", margin: 0, lineHeight: 1 }}>
+                <h1 style={{ fontFamily: "var(--font-display)", fontSize: isMobile ? 27 : 36, fontWeight: 700, letterSpacing: "-0.01em", margin: 0, lineHeight: 1 }}>
                   Powder Window
                 </h1>
-                <p style={{ margin: "5px 0 0", color: "var(--muted)", fontSize: isMobile ? 12.5 : 14 }}>
-                  Real snow data. Better days.
-                </p>
+                {/* Tagline em caixa-alta espaçada, flanqueada por traços finos (como no logo) */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+                  <span style={{ width: 18, height: 1, background: "var(--line-strong)" }} />
+                  <span style={{
+                    fontFamily: "var(--font-mono)", fontSize: isMobile ? 9.5 : 10.5,
+                    letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--muted)",
+                  }}>
+                    Real snow data · Better days
+                  </span>
+                  <span style={{ flex: 1, height: 1, background: "var(--line)", minWidth: 12 }} />
+                </div>
               </div>
             </div>
           </div>
@@ -164,9 +176,9 @@ export default function App() {
             <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{
                 display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999,
-                fontFamily: "var(--font-mono)", fontSize: 11.5,
-                background: mode === "forecast" ? "var(--blue-soft)" : "var(--amber-soft)",
-                color: mode === "forecast" ? "var(--blue-ink)" : "var(--amber-ink)",
+                fontFamily: "var(--font-mono)", fontSize: 11.5, letterSpacing: "0.04em",
+                background: mode === "forecast" ? "var(--favored-soft)" : "var(--warn-soft)",
+                color: mode === "forecast" ? "var(--cyan-bright)" : "var(--warn)",
               }}>
                 <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor",
                   animation: loading ? "pulse 1s infinite" : undefined }} />
@@ -176,6 +188,18 @@ export default function App() {
                 {horizonLabel(leadDays, mode)}
                 {loading && ` · carregando ${Math.round(progress * 100)}%`}
               </span>
+              {crowdLabels.length > 0 && (
+                <span
+                  title={`Alta lotação esperada: ${crowdLabels.join(" · ")}`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRadius: 999,
+                    fontFamily: "var(--font-mono)", fontSize: 11.5, letterSpacing: "0.04em",
+                    background: "var(--warn-soft)", color: "var(--warn)",
+                  }}
+                >
+                  ◆ alta lotação esperada
+                </span>
+              )}
             </div>
 
             {/* Window finder (2.1) */}

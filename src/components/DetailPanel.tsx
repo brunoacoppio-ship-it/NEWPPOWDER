@@ -14,6 +14,7 @@ import {
   getSeasonTiming, doyToDate, type SeasonTiming, type SeasonProjection,
 } from "../data/seasonTiming";
 import { fetchWebcams, type Webcam } from "../data/webcamsClient";
+import { crowdWindowsFor } from "../data/crowdCalendar";
 
 // ── Snow quality types (2.3) ──────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
 
   const phase = ensoPhase(CURRENT_ONI);
   const currentYear = new Date().getFullYear();
+  const crowdLabels = crowdWindowsFor(targetDate);
 
   // Adaptive season open/close window (3.6) — fetched per selected resort, fails
   // soft: on any network/data gap the section simply doesn't render.
@@ -204,8 +206,8 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
               {inSeasonRange && (
                 <ReferenceLine
                   x={targetMonthLabel}
-                  stroke="#fff" strokeDasharray="4 3" strokeOpacity={0.5}
-                  label={{ value: "alvo", fill: "#97a6c0", fontSize: 10, position: "top" }}
+                  stroke="#ffffff" strokeDasharray="4 3" strokeOpacity={0.5}
+                  label={{ value: "alvo", fill: "#9db0cc", fontSize: 10, position: "top" }}
                 />
               )}
               <Area type="monotone" dataKey="score" name="Nota" stroke={accent} strokeWidth={2.5} fill="url(#bandGrad)" />
@@ -259,6 +261,30 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
       </div>
       <div style={{ fontSize: 11.5, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
         fontes: {row.result.sources.join(" · ")}
+      </div>
+
+      {/* Logistics (4.3) + crowd flag (4.2) */}
+      <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+        <div style={sectionLabel}>logística</div>
+        <div style={{ ...metricsGrid, marginTop: 8 }}>
+          <Metric label="Cidade-base" value={resort.logistics.baseCity} />
+          <Metric label="Distância" value={`${resort.logistics.driveKm} km`} />
+          <Metric label="Carro" value={resort.logistics.driveTime} />
+          <Metric label="Aeroporto" value={resort.logistics.airport} />
+        </div>
+        {crowdLabels.length > 0 && (
+          <div
+            title={`Alta lotação esperada: ${crowdLabels.join(" · ")}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
+              padding: "5px 11px", borderRadius: 999,
+              fontFamily: "var(--font-mono)", fontSize: 11.5, letterSpacing: "0.03em",
+              background: "var(--warn-soft)", color: "var(--warn)",
+            }}
+          >
+            ◆ alta lotação esperada · {crowdLabels[0]}
+          </div>
+        )}
       </div>
 
       {/* Analog years (2.5) */}

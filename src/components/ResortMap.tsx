@@ -148,7 +148,7 @@ export function ResortMap({
 const controlGroup: CSSProperties = {
   position: "absolute", top: 10, right: 10, zIndex: 1000,
   display: "flex", gap: 4, padding: 3, borderRadius: 999,
-  background: "rgba(6, 11, 24, 0.72)", border: "1px solid var(--line)",
+  background: "rgba(5, 7, 13, 0.78)", border: "1px solid var(--line)",
   backdropFilter: "blur(8px)",
 };
 const segBtn: CSSProperties = {
@@ -163,6 +163,6 @@ const numFont: CSSProperties = { fontFamily: "var(--font-mono)" };
 const windyCaption: CSSProperties = {
   position: "absolute", left: 10, bottom: 10, zIndex: 1000,
   fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--faint)",
-  background: "rgba(6, 11, 24, 0.72)", padding: "3px 8px", borderRadius: 8,
+  background: "rgba(5, 7, 13, 0.78)", padding: "3px 8px", borderRadius: 8,
   pointerEvents: "none",
 };

@@ -11,13 +11,13 @@ export function EnsoBanner() {
         alignItems: "center",
         gap: 14,
         padding: "12px 16px",
-        borderColor: favorable ? "rgba(56,189,248,0.3)" : undefined,
+        borderColor: favorable ? "var(--glow-cyan)" : undefined,
       }}
     >
       <div style={{
         fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 500,
-        color: "var(--blue-ink)", whiteSpace: "nowrap",
-        background: "var(--blue-soft)", padding: "6px 10px", borderRadius: 8,
+        color: "var(--cyan-bright)", whiteSpace: "nowrap",
+        background: "var(--favored-soft)", padding: "6px 10px", borderRadius: 8,
       }}>
         ONI {CURRENT_ONI > 0 ? "+" : ""}{CURRENT_ONI.toFixed(1)}
       </div>

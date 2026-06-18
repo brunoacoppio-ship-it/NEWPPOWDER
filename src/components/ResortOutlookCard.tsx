@@ -112,10 +112,11 @@ export function ResortOutlookCard({
       <div style={{ position: "relative", width: 84, height: 84, flexShrink: 0 }}>
         <svg viewBox="0 0 84 84" width={84} height={84} aria-hidden>
           <defs>
+            {/* Mirrors --gradient-brand from the identity guide. */}
             <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="var(--cyan-bright)" />
-              <stop offset="45%" stopColor="var(--cyan)" />
-              <stop offset="100%" stopColor="var(--blue-deep)" />
+              <stop offset="35%" stopColor="var(--cyan)" />
+              <stop offset="100%" stopColor="var(--blue)" />
             </linearGradient>
           </defs>
           {/* track */}
