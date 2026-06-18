@@ -110,34 +110,24 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
         </ResponsiveContainer>
       </div>
 
-      {/* Metrics */}
-      {mode === "forecast" && row.breakdown ? (
-        <div style={metricsGrid}>
-          <Metric label="Neve fresca (72h)" value={`${row.breakdown.freshSnowCm} cm`} hot={row.breakdown.freshSnowCm >= 20} />
-          <Metric label="Base" value={`${row.breakdown.baseDepthCm} cm`} />
-          <Metric label="Temp. média" value={`${row.breakdown.meanTempC}°C`} hot={row.breakdown.meanTempC <= -3} />
-          <Metric label="Linha de neve" value={`${row.breakdown.freezingLevelM} m`} />
-          <Metric label="Qualidade" value={`${row.breakdown.snowQuality}%`} />
-          <Metric label="Confiança" value={`${Math.round(row.breakdown.confidence * 100)}%`} />
-        </div>
-      ) : row.result ? (
-        <>
-          <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55 }}>
-            {row.result.reasoning}
-          </p>
-          <div style={metricsGrid}>
-            <Metric label="Base esperada" value={`${row.result.low}–${row.result.high} cm`} />
-            <Metric label="vs. normal (5a)" value={`${row.result.normalBase} cm`} />
-            <Metric label="Linha de neve" value={`${row.result.expectedSnowLine} m`} />
-            <Metric label="Temporada" value={`${Math.round(row.result.seasonFactor * 100)}% do pico`} />
-            <Metric label="Qualidade" value={`${Math.round(row.result.qual * 100)}%`} />
-            <Metric label="Confiança" value={row.result.confidence} />
-          </div>
-          <div style={{ fontSize: 11.5, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
-            fontes: {row.result.sources.join(" · ")}
-          </div>
-        </>
-      ) : null}
+      {/* Metrics — one continuous engine output; the live forecast just folds in */}
+      <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55 }}>
+        {row.result.reasoning}
+      </p>
+      <div style={metricsGrid}>
+        {mode === "forecast" && row.freshSnowCm != null && (
+          <Metric label="Neve fresca (72h)" value={`${row.freshSnowCm} cm`} hot={row.freshSnowCm >= 20} />
+        )}
+        <Metric label="Base esperada" value={`${row.result.low}–${row.result.high} cm`} />
+        <Metric label="vs. normal (5a)" value={`${row.result.normalBase} cm`} />
+        <Metric label="Linha de neve" value={`${row.result.expectedSnowLine} m`} />
+        <Metric label="Temporada" value={`${Math.round(row.result.seasonFactor * 100)}% do pico`} />
+        <Metric label="Qualidade" value={`${Math.round(row.result.qual * 100)}%`} />
+        <Metric label="Confiança" value={row.result.confidence} />
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
+        fontes: {row.result.sources.join(" · ")}
+      </div>
     </div>
   );
 }

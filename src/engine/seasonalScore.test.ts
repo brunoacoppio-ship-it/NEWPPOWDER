@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { RESORTS } from "../data/resorts";
 import { computeSeasonalScore } from "./seasonalScore";
+import { forecastSdForLead } from "../data/liveRefine";
 
 const byId = (id: string) => RESORTS.find((r) => r.id === id)!;
 
@@ -43,6 +44,40 @@ describe("seasonal engine", () => {
       .map((x) => x.id);
     expect(ranked.slice(0, 2).sort()).toEqual(["portillo", "valle-nevado"].sort());
     expect(ranked.indexOf("valle-nevado")).toBeLessThan(ranked.indexOf("nevados-chillan"));
+  });
+
+  it("is continuous across the 16-day edge even when the forecast disagrees", () => {
+    const v = byId("valle-nevado");
+    const at = (days: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const date17 = at(17); // pure seasonal (beyond the forecast window)
+    const date15 = at(15); // forecast enters the same engine as one estimator
+
+    const seasonal17 = computeSeasonalScore(v, { targetDate: date17 });
+    // The hard case: Open-Meteo's point snow_depth is far THINNER than the
+    // climatological base (e.g. 15 cm vs ~160 cm in early July). With a flat
+    // tight σ this would crater the score and recreate the day-16 jump. The
+    // lead-scaled σ keeps the edge smooth — the forecast barely perturbs the
+    // estimate at lead 15 and only collapses the band as the day approaches.
+    const forecast15 = computeSeasonalScore(v, {
+      targetDate: date15,
+      forecastBase: 15,
+      forecastSd: forecastSdForLead(15),
+    });
+
+    expect(Math.abs(forecast15.score - seasonal17.score)).toBeLessThan(20);
+    expect(forecast15.sd).toBeLessThan(seasonal17.sd);
+
+    // ...and near term the forecast dominates and the band genuinely collapses.
+    const forecast2 = computeSeasonalScore(v, {
+      targetDate: at(2),
+      forecastBase: 15,
+      forecastSd: forecastSdForLead(2),
+    });
+    expect(forecast2.sd).toBeLessThan(forecast15.sd);
   });
 
   it("varies by date: August peak beats June ramp-up beats October melt", () => {

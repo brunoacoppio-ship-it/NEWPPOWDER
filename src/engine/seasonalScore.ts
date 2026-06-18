@@ -149,18 +149,29 @@ export function computeSeasonalScore(r: Resort, opts: SeasonalOpts = {}): Season
     estimators.push({ mean: c.meanBase + opts.seas5AnomalyCm, var: (0.55 * c.sd) ** 2 });
     sources.push("SEAS5");
   }
+  // Climatological/analog terms live in PEAK-winter space; the season curve
+  // scales the fused estimate down to the target date. Honest-uncertainty floor:
+  // a pure seasonal outlook (no live forecast yet) can't be narrow.
+  const fusedClim = fuse(estimators);
+  const seasonalMean = Math.max(0, fusedClim.mean) * sf;
+  const seasonalSd = Math.max(Math.sqrt(fusedClim.var) * sf, 0.18 * seasonalMean);
+
+  // The live forecast (≤16d) is a DATE-SPECIFIC base depth, so it joins the
+  // fusion AFTER the seasonal scaling — the same continuous quantity gains one
+  // more (precise) estimator. Crossing the 16-day edge never switches formulas:
+  // the score stays put and only the band tightens.
+  let expectedBase = seasonalMean;
+  let sd = seasonalSd;
   if (opts.forecastBase != null) {
-    estimators.push({ mean: opts.forecastBase, var: (opts.forecastSd ?? 8) ** 2 });
+    const combined = fuse([
+      { mean: seasonalMean, var: seasonalSd ** 2 },
+      { mean: Math.max(0, opts.forecastBase), var: (opts.forecastSd ?? 8) ** 2 },
+    ]);
+    expectedBase = Math.max(0, combined.mean);
+    sd = Math.sqrt(combined.var);
     sources.push("previsão do tempo");
   }
 
-  const fused = fuse(estimators);
-  // Apply the seasonal curve: peak-winter estimate scaled to the target date.
-  let sd = Math.sqrt(fused.var) * sf;
-  const expectedBase = Math.max(0, fused.mean) * sf;
-  // Honest-uncertainty floor: a seasonal outlook (no live forecast yet) can't be
-  // narrow. The band only tightens once a real forecast enters the window.
-  if (opts.forecastBase == null) sd = Math.max(sd, 0.18 * expectedBase);
   const low = Math.max(0, expectedBase - sd);
   const high = expectedBase + sd;
 

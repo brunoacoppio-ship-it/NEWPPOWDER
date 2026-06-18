@@ -11,6 +11,22 @@ export function leadDaysTo(targetDate: string): number {
   return Math.round((target - today) / 86_400_000);
 }
 
+/**
+ * Uncertainty (cm) to credit the live base-depth forecast at a given lead time.
+ *
+ * This is what keeps the engine *continuous* across the 16-day edge. Open-Meteo's
+ * point snow_depth lives on a much thinner scale than the climatological base, so
+ * a flat tight σ would let it slam the score down the instant a date crosses into
+ * the window — the very day-16 jump we're removing. Instead the forecast enters
+ * weak (wide σ ≈ no effect) at the edge and tightens to a precise 8 cm as the day
+ * approaches, so the score slides smoothly toward reality and the band only ever
+ * shrinks. 8 cm is the near-term (full-confidence) floor.
+ */
+export function forecastSdForLead(leadDays: number): number {
+  const lead = Math.max(0, Math.min(15, leadDays));
+  return 8 + 5 * lead; // 8 cm today → 83 cm at the window edge
+}
+
 /** Returns base depth (cm) forecast for the target date, or null. */
 export async function fetchForecastBase(
   lat: number,

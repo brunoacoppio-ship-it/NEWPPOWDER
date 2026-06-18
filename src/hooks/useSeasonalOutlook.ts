@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { RESORTS } from "../data/resorts";
 import { computeSeasonalScore, type SeasonalResult } from "../engine/seasonalScore";
-import { fetchForecast, clearForecastCache, type ForecastResponse } from "../data/forecastClient";
-import { computeScore, DEFAULT_WEIGHTS, type ScoreBreakdown } from "../scoring/score";
-import { leadDaysTo } from "../data/liveRefine";
+import {
+  fetchForecast, clearForecastCache, summarizeForecast, type ForecastResponse,
+} from "../data/forecastClient";
+import { leadDaysTo, forecastSdForLead } from "../data/liveRefine";
 
 export type DataMode = "forecast" | "seasonal";
 
@@ -11,19 +12,18 @@ export interface OutlookRow {
   resort: (typeof RESORTS)[number];
   mode: DataMode;
   rank: number;
-  /** Unified 0–100 score used for ranking, regardless of mode. */
+  /** Unified 0–100 score used for ranking. Always from the same engine. */
   score: number;
-  // seasonal-only
-  result?: SeasonalResult;
-  // forecast-only
-  breakdown?: ScoreBreakdown;
+  /** The continuous engine output, present in both modes. */
+  result: SeasonalResult;
+  // forecast-window only (drives the 16-day chart + fresh-snow metric)
   forecast?: ForecastResponse;
+  freshSnowCm?: number;
 }
 
 export function useSeasonalOutlook(targetDate: string, region: string | null) {
   const leadDays = leadDaysTo(targetDate);
   const mode: DataMode = leadDays <= 15 ? "forecast" : "seasonal";
-  const today = new Date().toISOString().slice(0, 10);
 
   const resorts = useMemo(
     () => (region ? RESORTS.filter((r) => r.region === region) : RESORTS),
@@ -48,18 +48,30 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
         if (cancelled) return;
         const resort = resorts[i];
 
+        // Inside the 16-day window, the real forecast joins the engine as one
+        // more estimator (it doesn't replace the formula). Network failure just
+        // falls back to the pure seasonal estimate for that resort.
+        let forecast: ForecastResponse | undefined;
+        let forecastBase: number | undefined;
+        let freshSnowCm: number | undefined;
         if (mode === "forecast") {
           try {
-            const forecast = await fetchForecast(resort.lat, resort.lon, resort.id);
-            const breakdown = computeScore(resort, targetDate, forecast.hourly, DEFAULT_WEIGHTS, today);
-            out.push({ resort, mode, score: breakdown.total, breakdown, forecast });
+            forecast = await fetchForecast(resort.lat, resort.lon, resort.id);
+            const summary = summarizeForecast(forecast.hourly, targetDate);
+            forecastBase = summary.baseDepthCm;
+            freshSnowCm = summary.freshSnowCm;
           } catch {
-            // skip on network failure
+            forecast = undefined;
           }
-        } else {
-          const result = computeSeasonalScore(resort, { targetDate });
-          out.push({ resort, mode, score: result.score, result });
         }
+
+        const result = computeSeasonalScore(resort, {
+          targetDate,
+          ...(forecastBase != null
+            ? { forecastBase, forecastSd: forecastSdForLead(leadDays) }
+            : {}),
+        });
+        out.push({ resort, mode, score: result.score, result, forecast, freshSnowCm });
 
         if (!cancelled) setProgress((i + 1) / resorts.length);
       }
@@ -76,7 +88,7 @@ export function useSeasonalOutlook(targetDate: string, region: string | null) {
 
     run().catch(() => setLoading(false));
     return () => { cancelled = true; };
-  }, [targetDate, mode, resorts, today]);
+  }, [targetDate, mode, resorts]);
 
   return { rows, loading, progress, mode, leadDays };
 }

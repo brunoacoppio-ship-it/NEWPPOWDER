@@ -14,8 +14,8 @@ export function ResortOutlookCard({
   const accent = scoreColor(score);
 
   const sub = mode === "forecast"
-    ? `${row.breakdown?.freshSnowCm ?? 0} cm frescos · base ${row.breakdown?.baseDepthCm ?? 0} cm`
-    : row.result?.reasoning ?? "";
+    ? `${row.freshSnowCm ?? 0} cm frescos · base ${row.result.expectedBase} cm`
+    : row.result.reasoning;
 
   const badge = mode === "forecast"
     ? { text: "PREVISÃO", fg: "var(--blue-ink)", bg: "var(--blue-soft)" }
