@@ -1,6 +1,7 @@
-import { useState, useEffect, Fragment, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, Fragment, type CSSProperties } from "react";
 import logoIcon from "./assets/logo-icon.png";
-import { REGIONS } from "./data/resorts";
+import { RESORTS, REGIONS } from "./data/resorts";
+import { zonesOf, isDateInSeason, seasonDateBounds, seasonLabel, peakDefaultDate } from "./data/seasons";
 import { useSeasonalOutlook } from "./hooks/useSeasonalOutlook";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { ResortOutlookCard } from "./components/ResortOutlookCard";
@@ -9,9 +10,6 @@ import { ResortMap } from "./components/ResortMap";
 import { DetailPanel } from "./components/DetailPanel";
 
 const today = new Date().toISOString().slice(0, 10);
-const maxDate = new Date();
-maxDate.setFullYear(maxDate.getFullYear() + 1);
-const maxDateStr = maxDate.toISOString().slice(0, 10);
 
 const inputStyle: CSSProperties = {
   font: "inherit", fontSize: 15, color: "var(--ink)", background: "var(--surface-2)",
@@ -26,11 +24,22 @@ function horizonLabel(leadDays: number, mode: "forecast" | "seasonal"): string {
 }
 
 export default function App() {
-  const [targetDate, setTargetDate] = useState(today);
+  // Item 1.5: open on the climatological peak (~15 Aug), not "today".
+  const [targetDate, setTargetDate] = useState(() => peakDefaultDate(today));
   const [region, setRegion] = useState<string | null>(null);
   const { rows, loading, progress, mode, leadDays } = useSeasonalOutlook(targetDate, region);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 860px)");
+
+  // Item 1.3: the selectable window + in-season check follow the season config of
+  // whichever resorts are currently visible (the region filter), never hardcoded.
+  const visibleResorts = useMemo(
+    () => (region ? RESORTS.filter((r) => r.region === region) : RESORTS),
+    [region]
+  );
+  const zones = useMemo(() => zonesOf(visibleResorts), [visibleResorts]);
+  const bounds = useMemo(() => seasonDateBounds(zones, today), [zones]);
+  const inSeason = isDateInSeason(targetDate, zones);
 
   // Selection rules differ by layout:
   //  - desktop: the side panel always shows something → default to #1
@@ -108,7 +117,7 @@ export default function App() {
             width: isMobile ? "100%" : undefined,
           }}>
             <input
-              type="date" value={targetDate} min={today} max={maxDateStr}
+              type="date" value={targetDate} min={bounds.min} max={bounds.max}
               onChange={(e) => e.target.value && setTargetDate(e.target.value)}
               style={{ ...inputStyle, flex: isMobile ? "1 1 140px" : undefined }}
             />
@@ -121,48 +130,60 @@ export default function App() {
             </select>
           </div>
         </div>
-        <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999,
-            fontFamily: "var(--font-mono)", fontSize: 11.5,
-            background: mode === "forecast" ? "var(--blue-soft)" : "var(--amber-soft)",
-            color: mode === "forecast" ? "var(--blue-ink)" : "var(--amber-ink)",
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor",
-              animation: loading ? "pulse 1s infinite" : undefined }} />
-            {mode === "forecast" ? "PREVISÃO REAL" : "MODELO SAZONAL"}
-          </span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--faint)" }}>
-            {horizonLabel(leadDays, mode)}
-            {loading && ` · carregando ${Math.round(progress * 100)}%`}
-          </span>
-        </div>
+        {inSeason && (
+          <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999,
+              fontFamily: "var(--font-mono)", fontSize: 11.5,
+              background: mode === "forecast" ? "var(--blue-soft)" : "var(--amber-soft)",
+              color: mode === "forecast" ? "var(--blue-ink)" : "var(--amber-ink)",
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor",
+                animation: loading ? "pulse 1s infinite" : undefined }} />
+              {mode === "forecast" ? "PREVISÃO REAL" : "MODELO SAZONAL"}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--faint)" }}>
+              {horizonLabel(leadDays, mode)}
+              {loading && ` · carregando ${Math.round(progress * 100)}%`}
+            </span>
+          </div>
+        )}
       </header>
 
-      {mode === "seasonal" && (
-        <div style={{ marginBottom: 16 }}><EnsoBanner /></div>
-      )}
-
-      {isMobile ? (
-        /* Mobile: single column — map on top, list with inline detail */
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {mapBlock}
-          {!loading && (
-            <p style={{ margin: "0 2px", fontSize: 12, color: "var(--faint)" }}>
-              Toque num destino — no mapa ou na lista — para ver o detalhe.
-            </p>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
-        </div>
+      {!inSeason ? (
+        <OutOfSeason
+          zones={zones}
+          isMobile={isMobile}
+          onGoToPeak={() => setTargetDate(peakDefaultDate(today))}
+        />
       ) : (
-        /* Desktop: list left, sticky map + detail right */
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 18, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
-          <div style={{ position: "sticky", top: 18, display: "flex", flexDirection: "column", gap: 18 }}>
-            {mapBlock}
-            {selected && <DetailPanel row={selected} targetDate={targetDate} />}
-          </div>
-        </div>
+        <>
+          {mode === "seasonal" && (
+            <div style={{ marginBottom: 16 }}><EnsoBanner /></div>
+          )}
+
+          {isMobile ? (
+            /* Mobile: single column — map on top, list with inline detail */
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {mapBlock}
+              {!loading && (
+                <p style={{ margin: "0 2px", fontSize: 12, color: "var(--faint)" }}>
+                  Toque num destino — no mapa ou na lista — para ver o detalhe.
+                </p>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
+            </div>
+          ) : (
+            /* Desktop: list left, sticky map + detail right */
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 18, alignItems: "start" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list}</div>
+              <div style={{ position: "sticky", top: 18, display: "flex", flexDirection: "column", gap: 18 }}>
+                {mapBlock}
+                {selected && <DetailPanel row={selected} targetDate={targetDate} />}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <footer style={{ marginTop: 34, paddingTop: 18, borderTop: "1px solid var(--line)", fontSize: 12.5, color: "var(--faint)", lineHeight: 1.6 }}>
@@ -172,6 +193,53 @@ export default function App() {
         re-ponderado por anos similares ao atual) escalados pela curva da temporada, de modo que cada data
         do inverno produz um resultado diferente. Banda larga = menor confiança.
       </footer>
+    </div>
+  );
+}
+
+function OutOfSeason({
+  zones, isMobile, onGoToPeak,
+}: {
+  zones: string[];
+  isMobile: boolean;
+  onGoToPeak: () => void;
+}) {
+  return (
+    <div
+      className="glass"
+      style={{
+        padding: isMobile ? "36px 22px" : "60px 40px",
+        textAlign: "center",
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+      }}
+    >
+      <span style={{
+        fontFamily: "var(--font-mono)", fontSize: 11.5, letterSpacing: "0.12em",
+        color: "var(--cyan-bright)", background: "var(--cyan-soft)",
+        padding: "4px 12px", borderRadius: 999,
+      }}>
+        FORA DE TEMPORADA
+      </span>
+      <h2 style={{
+        margin: 0, fontFamily: "var(--font-display)", fontWeight: 700,
+        fontSize: isMobile ? 22 : 28, letterSpacing: "-0.01em", color: "var(--ink)",
+      }}>
+        Sem neve esquiável nesta data
+      </h2>
+      <p style={{ margin: 0, maxWidth: 460, color: "var(--muted)", fontSize: 14.5, lineHeight: 1.6 }}>
+        A janela de inverno vai de <strong style={{ color: "var(--ink)" }}>{seasonLabel(zones)}</strong>.
+        Fora dela não há outlook de neve a mostrar — preferimos dizer isso a exibir notas zeradas.
+      </p>
+      <button
+        onClick={onGoToPeak}
+        style={{
+          font: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer",
+          color: "var(--bg)", background: "var(--cyan)",
+          border: "none", borderRadius: 10, padding: "10px 18px", marginTop: 4,
+        }}
+      >
+        Ir para o pico da temporada (15 de agosto)
+      </button>
     </div>
   );
 }
