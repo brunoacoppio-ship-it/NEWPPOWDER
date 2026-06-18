@@ -15,6 +15,7 @@ import {
 } from "../data/seasonTiming";
 import { fetchWebcams, type Webcam } from "../data/webcamsClient";
 import { crowdWindowsFor } from "../data/crowdCalendar";
+import { useSnowReport } from "../hooks/useSnowReport";
 
 // ── Snow quality types (2.3) ──────────────────────────────────────────────────
 
@@ -120,6 +121,10 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
   const phase = ensoPhase(CURRENT_ONI);
   const currentYear = new Date().getFullYear();
   const crowdLabels = crowdWindowsFor(targetDate);
+
+  // Live trail/lift status (Bloco 6) — own fetch per selected resort, fail-soft.
+  const { report: snow, loading: snowLoading } = useSnowReport(resort.id);
+  const liveFresh = liveFreshness(snow?.updatedAt ?? null);
 
   // Adaptive season open/close window (3.6) — fetched per selected resort, fails
   // soft: on any network/data gap the section simply doesn't render.
@@ -261,6 +266,12 @@ export function DetailPanel({ row, targetDate }: { row: OutlookRow; targetDate: 
       </div>
       <div style={{ fontSize: 11.5, color: "var(--faint)", fontFamily: "var(--font-mono)" }}>
         fontes: {row.result.sources.join(" · ")}
+      </div>
+
+      {/* Live trail/lift status (Bloco 6) */}
+      <div style={{ borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+        <div style={sectionLabel}>pistas e lifts ao vivo</div>
+        <LiveStatus report={snow} loading={snowLoading} fresh={liveFresh} />
       </div>
 
       {/* Logistics (4.3) + crowd flag (4.2) */}
@@ -407,6 +418,70 @@ function TimingRow({
   );
 }
 
+// ── Live status (Bloco 6) ──────────────────────────────────────────────────────
+
+function liveFreshness(updatedAt: string | null): string | null {
+  if (!updatedAt) return null;
+  const t = Date.parse(updatedAt);
+  if (Number.isNaN(t)) return null; // resort-provided non-ISO string → no "há Nh"
+  const min = Math.floor((Date.now() - t) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `há ${h} h`;
+  return `há ${Math.floor(h / 24)} d`;
+}
+
+function LiveStatus({
+  report, loading, fresh,
+}: {
+  report: import("../data/snowReport").SnowReport | null;
+  loading: boolean;
+  fresh: string | null;
+}) {
+  const sourceLink = report?.source ? (
+    <a href={report.source} target="_blank" rel="noopener noreferrer"
+      style={{ color: "var(--faint)", textDecoration: "underline" }}>
+      fonte oficial
+    </a>
+  ) : null;
+
+  if (loading) {
+    return <div style={liveMuted}>consultando o site oficial…</div>;
+  }
+
+  // Out of season / unavailable → soft fallback, never a misleading "0/N".
+  if (!report || report.stale) {
+    return (
+      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{
+          fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.06em",
+          color: "var(--neutral)", background: "var(--neutral-soft)",
+          padding: "3px 10px", borderRadius: 999,
+        }}>
+          fora de temporada
+        </span>
+        {sourceLink}
+      </div>
+    );
+  }
+
+  const parts: string[] = [];
+  if (report.runsOpen != null && report.runsTotal != null) parts.push(`Pistas ${report.runsOpen}/${report.runsTotal}`);
+  if (report.liftsOpen != null && report.liftsTotal != null) parts.push(`Lifts ${report.liftsOpen}/${report.liftsTotal}`);
+  if (report.baseDepthCm != null) parts.push(`base ${report.baseDepthCm} cm`);
+  if (fresh) parts.push(`atualizado ${fresh}`);
+
+  return (
+    <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--ink)" }}>
+        {parts.join(" · ")}
+      </span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--faint)" }}>· {sourceLink}</span>
+    </div>
+  );
+}
+
 function Metric({ label, value, hot }: { label: string; value: string; hot?: boolean }) {
   return (
     <div style={{
@@ -442,6 +517,9 @@ function ChartTip({ active, payload, label, unit }: {
 const sectionLabel: CSSProperties = {
   fontFamily: "var(--font-mono)", fontSize: 10.5, letterSpacing: "0.08em",
   color: "var(--faint)", textTransform: "uppercase",
+};
+const liveMuted: CSSProperties = {
+  marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--faint)",
 };
 const metricsGrid: CSSProperties = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8,
